@@ -1,8 +1,12 @@
 mod net;
+use std::collections::HashSet;
+
 use clap::{Parser, ValueEnum};
 use net::Net;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+
+use crate::net::State;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum Experiment {
@@ -55,8 +59,8 @@ fn mean(data: &[f64]) -> f64 {
     data.iter().sum::<f64>() / data.len() as f64
 }
 
-fn median(data: &mut [f64]) -> f64 {
-    data.sort_by(|a, b| a.total_cmp(b));
+fn median<T: PartialOrd + Copy>(data: &mut [T]) -> T {
+    data.sort_by(|a, b| a.partial_cmp(b).unwrap());
     data[data.len() / 2]
 }
 
@@ -153,6 +157,7 @@ fn default(args: &Args) {
             mean(&transients),
             stdev(&transients),
         );
+    } else {
         println!("  (all runs hit max_steps — no cycle statistics available)");
     }
 }
@@ -257,7 +262,7 @@ fn run_experiment_5_dot_3(args: &Args) {
         println!(
             "{}",
             result
-                .activities
+                .pairwise_hamming_distances()
                 .iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
@@ -274,7 +279,70 @@ fn run_experiment_5_dot_3(args: &Args) {
  * FIG. 7. The median number of cycles per net as N increases appears linear in a log/log
  * plot. The slope is about 0.3. The expected number of cycles is slightly less than square root N.
  */
-fn run_experiment_5_dot_4(_args: &Args) {}
+fn run_experiment_5_dot_4(args: &Args) {
+    let mut rng = StdRng::seed_from_u64(args.seed);
+
+    // for a given net size
+    println!("Nodes: {:>4}", args.num_nodes);
+    let mut num_cycles: Vec<usize> = Vec::with_capacity(args.runs);
+    let mut num_cycles_incl_msr: Vec<usize> = Vec::with_capacity(args.runs);
+    // across some number of runs per net size
+    for run in 0..args.runs {
+        let net_seed: u64 = rng.r#gen();
+
+        // Paper's experiment uses 50 successive runs per net
+        let mut cycle_ids: HashSet<State> = HashSet::with_capacity(50);
+        let mut max_steps_reached = 0;
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
+        // 50 times per net
+        for _ in 0..50 {
+            let run_seed: u64 = rng.r#gen();
+            let mut run_rng = StdRng::seed_from_u64(run_seed);
+            let result = net.perform_run(&mut run_rng);
+            if let Some(cycle_id) = result.cycle_id() {
+                cycle_ids.insert(cycle_id);
+            } else {
+                max_steps_reached += 1;
+            }
+        }
+        let num_unique_cycles = cycle_ids.len();
+        println!(
+            "Net: {:>2} had {:>4} unique cycles, {:>4} max steps reached",
+            run, num_unique_cycles, max_steps_reached
+        );
+        num_cycles.push(num_unique_cycles);
+        num_cycles_incl_msr.push(num_unique_cycles + max_steps_reached);
+    }
+    // print the median number of cycles found in a net of that size
+    println!(
+        "{}",
+        num_cycles
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    println!(
+        "{}",
+        num_cycles_incl_msr
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    println!(
+        "Median number of cycles for an n={:<4} net: {:>4}, (incl msr): {:>4}",
+        args.num_nodes,
+        median(&mut num_cycles),
+        median(&mut num_cycles_incl_msr),
+    )
+}
 
 fn run_experiment_5_dot_5(_args: &Args) {}
 

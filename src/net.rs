@@ -1,7 +1,6 @@
 use bitvec::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
@@ -9,8 +8,8 @@ use std::hash::{Hash, Hasher};
 // Bit-packed state vector
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, PartialEq, Eq)]
-struct State(BitVec);
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct State(BitVec);
 
 impl Hash for State {
     fn hash<H: Hasher>(&self, h: &mut H) {
@@ -56,12 +55,31 @@ fn get_random_func(k: u32, exclude_taut_and_cont: bool, rng: &mut impl Rng) -> u
 // Network
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct RunResult {
     pub transient: usize,
     pub cycle_length: usize,
     pub max_steps_reached: bool,
-    pub activities: Vec<u16>,
+    pub states: Vec<State>,
+}
+
+impl RunResult {
+    /// Used to calculate the "activity" of the network
+    /// (i.e. the number of elements which change value per state transition)
+    pub fn pairwise_hamming_distances(&self) -> Vec<u32> {
+        self.states
+            .windows(2)
+            .map(|pair| (pair[0].0.clone() ^ pair[1].0.clone()).count_ones() as u32)
+            .collect()
+    }
+
+    pub fn cycle_id(&self) -> Option<State> {
+        if self.max_steps_reached {
+            None
+        } else {
+            self.states[self.transient + 1..].iter().min().cloned()
+        }
+    }
 }
 
 pub struct Net {
@@ -73,7 +91,6 @@ pub struct Net {
     next: State,
     max_steps: usize,
     seen: HashMap<State, usize>,
-    activities: Vec<u16>,
 }
 
 impl Net {
@@ -96,7 +113,6 @@ impl Net {
             next: State::new(n),
             max_steps,
             seen: HashMap::with_capacity(max_steps),
-            activities: Vec::with_capacity(max_steps),
         }
     }
 
@@ -107,53 +123,46 @@ impl Net {
     }
 
     fn step(&mut self) {
-        // Number of nodes which change value in a given state transition
-        let mut activity: u16 = 0;
-
         for i in 0..self.n {
             let input_start_idx = i * self.k;
             let idx = concat_bits(
                 &self.current,
                 &self.inputs[input_start_idx..input_start_idx + self.k],
             );
-
-            let prev = self.current.get(i);
-            let next = (self.funcs[i] >> idx) & 1 != 0;
-            if prev != next {
-                activity += 1;
-            }
-
-            self.next.set(i, next);
+            self.next.set(i, (self.funcs[i] >> idx) & 1 != 0);
         }
 
-        self.activities.push(activity);
         std::mem::swap(&mut self.current, &mut self.next);
     }
 
     pub fn perform_run(&mut self, rng: &mut impl Rng) -> RunResult {
         self.set_random_state(rng);
         self.seen.clear();
-        self.activities.clear();
 
         for t in 0..self.max_steps {
             let state = self.current.clone();
             if let Some(&prev_t) = self.seen.get(&state) {
+                let mut states: Vec<State> = self.seen.keys().cloned().collect();
+                states.sort_by_key(|t| self.seen[t]);
+
                 return RunResult {
                     transient: prev_t,
                     cycle_length: t - prev_t,
                     max_steps_reached: false,
-                    activities: self.activities.clone(),
+                    states,
                 };
             }
             self.seen.insert(state, t);
             self.step();
         }
 
+        let mut states: Vec<State> = self.seen.keys().cloned().collect();
+        states.sort_by_key(|t| self.seen[t]);
         RunResult {
             transient: self.max_steps,
             cycle_length: self.max_steps,
             max_steps_reached: true,
-            activities: self.activities.clone(),
+            states,
         }
     }
 }
