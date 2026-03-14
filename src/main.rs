@@ -4,8 +4,6 @@ use net::Net;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use crate::net::RunResult;
-
 #[derive(Debug, Clone, ValueEnum)]
 enum Experiment {
     Experiment5Dot1,
@@ -87,6 +85,11 @@ fn main() {
 
     match args.experiment {
         Some(Experiment::Experiment5Dot1) => run_experiment_5_dot_1(&args),
+        Some(Experiment::Experiment5Dot2) => run_experiment_5_dot_2(&args),
+        Some(Experiment::Experiment5Dot3) => run_experiment_5_dot_3(&args),
+        Some(Experiment::Experiment5Dot4) => run_experiment_5_dot_4(&args),
+        Some(Experiment::Experiment5Dot5) => run_experiment_5_dot_5(&args),
+        Some(Experiment::Experiment5Dot6) => run_experiment_5_dot_6(&args),
         _ => default(&args),
     }
 }
@@ -167,9 +170,33 @@ fn default(args: &Args) {
  * tions (tautology and contradiction not used). The asymptotic slopes are about 0.3 and 0.6.
  */
 fn run_experiment_5_dot_1(args: &Args) {
-    // Top-level RNG used to derive per-run seeds, ensuring full reproducibility.
     let mut rng = StdRng::seed_from_u64(args.seed);
-    let mut run_results: Vec<RunResult> = Vec::new();
+
+    println!("cycle_length,max_steps_reached");
+
+    for _run in 0..args.runs {
+        let net_seed: u64 = rng.r#gen();
+        let run_seed: u64 = rng.r#gen();
+        let mut run_rng = StdRng::seed_from_u64(run_seed);
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
+        let result = net.perform_run(&mut run_rng);
+        println!("{},{}", result.cycle_length, result.max_steps_reached);
+    }
+}
+
+/**
+ * FIG. 5. A scattergram of run-in length and cycle length in nets of 400 binary elements
+ * using neither tautology nor contradiction. Run-in length appears uncorrelated with cycle
+ * length. A log/log plot was used merely to accommodate the data.
+ */
+fn run_experiment_5_dot_2(args: &Args) {
+    let mut rng = StdRng::seed_from_u64(args.seed);
 
     println!("cycle_length,transient,max_steps_reached");
 
@@ -177,7 +204,13 @@ fn run_experiment_5_dot_1(args: &Args) {
         let net_seed: u64 = rng.r#gen();
         let run_seed: u64 = rng.r#gen();
         let mut run_rng = StdRng::seed_from_u64(run_seed);
-        let mut net = Net::new(400, 2, true, args.max_steps, net_seed);
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
         let result = net.perform_run(&mut run_rng);
         println!(
             "{},{},{}",
@@ -187,13 +220,51 @@ fn run_experiment_5_dot_1(args: &Args) {
 }
 
 /**
- * FIG. 5. A scattergram of run-in length and cycle length in nets of 400 binary elements
- * using neither tautology nor contradiction. Run-in length appears uncorrelated with cycle
- * length. A log/log plot was used merely to accommodate the data.
- */
-fn run_experiment_5_dot_2(args: &Args) {}
+* When the system is released from an arbitary initial state, the number of
+* elements which change value (the activity) per state transition decreases
+* rapidly. In nets of 100 elements, using all 16 Boolean functions, the number
+* of elements which change value at the first state transition is about 0.4N
+* This decreases, along a curve nearly fitted by a negative exponential with a
+* half decay of 3-4 state transitions, to a minimum activity of 0 to 0.25N per
+* state transition along the cycle. For larger nets, the half decay should require
+* more transitions. Thus, as the system approaches a cycle, states become
+* progressively more similar. One would expect that all states which differ from
+* cycle states in the value of only one element would themselves be located a
+* very few state transitions from that cycle.
+* The number of genes which change value during a cycle varies between 0
+* and 35 in nets of 100 elements using all 16 Boolean functions. The consequence
+* is that most genes are constant throughout the cycle, and the cycle states are
+* highly similar.
+*/
+fn run_experiment_5_dot_3(args: &Args) {
+    let mut rng = StdRng::seed_from_u64(args.seed);
 
-fn run_experiment_5_dot_3(args: &Args) {}
+    for _run in 0..args.runs {
+        let net_seed: u64 = rng.r#gen();
+        let run_seed: u64 = rng.r#gen();
+        let mut run_rng = StdRng::seed_from_u64(run_seed);
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
+        let result = net.perform_run(&mut run_rng);
+        if result.max_steps_reached {
+            print!("MAX_STEPS_REACHED,")
+        }
+        println!(
+            "{}",
+            result
+                .activities
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
+}
 
 /**
  * FIG. 6. A histogram of the number of cycles per net in nets of 400 elements using neither
@@ -203,9 +274,9 @@ fn run_experiment_5_dot_3(args: &Args) {}
  * FIG. 7. The median number of cycles per net as N increases appears linear in a log/log
  * plot. The slope is about 0.3. The expected number of cycles is slightly less than square root N.
  */
-fn run_experiment_5_dot_4(args: &Args) {}
+fn run_experiment_5_dot_4(_args: &Args) {}
 
-fn run_experiment_5_dot_5(args: &Args) {}
+fn run_experiment_5_dot_5(_args: &Args) {}
 
 /**
  * FIG. 8. A scattergram of the minimum distance between cycles and cycle length in nets of
@@ -219,4 +290,4 @@ fn run_experiment_5_dot_5(args: &Args) {}
  * 0.01 in the same nets as those of (a). In nets using all 16 Boolean functions, the total number
  * of cycles reached from each cycle is about the same as the data in (b).
  */
-fn run_experiment_5_dot_6(args: &Args) {}
+fn run_experiment_5_dot_6(_args: &Args) {}

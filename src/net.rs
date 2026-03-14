@@ -61,6 +61,7 @@ pub struct RunResult {
     pub transient: usize,
     pub cycle_length: usize,
     pub max_steps_reached: bool,
+    pub activities: Vec<u16>,
 }
 
 pub struct Net {
@@ -72,6 +73,7 @@ pub struct Net {
     next: State,
     max_steps: usize,
     seen: HashMap<State, usize>,
+    activities: Vec<u16>,
 }
 
 impl Net {
@@ -94,6 +96,7 @@ impl Net {
             next: State::new(n),
             max_steps,
             seen: HashMap::with_capacity(max_steps),
+            activities: Vec::with_capacity(max_steps),
         }
     }
 
@@ -104,20 +107,33 @@ impl Net {
     }
 
     fn step(&mut self) {
+        // Number of nodes which change value in a given state transition
+        let mut activity: u16 = 0;
+
         for i in 0..self.n {
             let input_start_idx = i * self.k;
             let idx = concat_bits(
                 &self.current,
                 &self.inputs[input_start_idx..input_start_idx + self.k],
             );
-            self.next.set(i, (self.funcs[i] >> idx) & 1 != 0);
+
+            let prev = self.current.get(i);
+            let next = (self.funcs[i] >> idx) & 1 != 0;
+            if prev != next {
+                activity += 1;
+            }
+
+            self.next.set(i, next);
         }
+
+        self.activities.push(activity);
         std::mem::swap(&mut self.current, &mut self.next);
     }
 
     pub fn perform_run(&mut self, rng: &mut impl Rng) -> RunResult {
         self.set_random_state(rng);
         self.seen.clear();
+        self.activities.clear();
 
         for t in 0..self.max_steps {
             let state = self.current.clone();
@@ -126,6 +142,7 @@ impl Net {
                     transient: prev_t,
                     cycle_length: t - prev_t,
                     max_steps_reached: false,
+                    activities: self.activities.clone(),
                 };
             }
             self.seen.insert(state, t);
@@ -136,6 +153,7 @@ impl Net {
             transient: self.max_steps,
             cycle_length: self.max_steps,
             max_steps_reached: true,
+            activities: self.activities.clone(),
         }
     }
 }
