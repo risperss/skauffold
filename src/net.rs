@@ -1,7 +1,6 @@
 use bitvec::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 // ---------------------------------------------------------------------------
@@ -60,26 +59,9 @@ pub struct RunResult {
     pub transient: usize,
     pub cycle_length: usize,
     pub max_steps_reached: bool,
-    pub states: Vec<State>,
-}
-
-impl RunResult {
-    /// Used to calculate the "activity" of the network
-    /// (i.e. the number of elements which change value per state transition)
-    pub fn pairwise_hamming_distances(&self) -> Vec<u32> {
-        self.states
-            .windows(2)
-            .map(|pair| (pair[0].0.clone() ^ pair[1].0.clone()).count_ones() as u32)
-            .collect()
-    }
-
-    pub fn cycle_id(&self) -> Option<State> {
-        if self.max_steps_reached {
-            None
-        } else {
-            self.states[self.transient + 1..].iter().min().cloned()
-        }
-    }
+    /// The lexicographic minimum state on the cycle, used as a stable cycle ID.
+    /// `None` iff `max_steps_reached`.
+    pub cycle_id: Option<State>,
 }
 
 pub struct Net {
@@ -87,10 +69,9 @@ pub struct Net {
     k: usize,
     funcs: Vec<u64>,
     inputs: Vec<usize>,
-    current: State,
-    next: State,
+    /// Scratch buffer – used during `step` to avoid allocation.
+    buff: State,
     max_steps: usize,
-    seen: HashMap<State, usize>,
 }
 
 impl Net {
@@ -109,60 +90,119 @@ impl Net {
             k: k as usize,
             funcs,
             inputs,
-            current: State::new(n),
-            next: State::new(n),
+            buff: State::new(n),
             max_steps,
-            seen: HashMap::with_capacity(max_steps),
         }
     }
 
-    fn set_random_state(&mut self, rng: &mut impl Rng) {
+    // Advance `state` by one step, writing the result back into `state`.
+    // Uses `self.next` as a scratch buffer to avoid allocation.
+    fn step_state(&mut self, state: &mut State) {
         for i in 0..self.n {
-            self.current.set(i, rng.r#gen());
+            let start = i * self.k;
+            let idx = concat_bits(state, &self.inputs[start..start + self.k]);
+            self.buff.set(i, (self.funcs[i] >> idx) & 1 != 0);
+        }
+        std::mem::swap(state, &mut self.buff);
+    }
+
+    // Advance `state` by `steps` steps in-place.
+    fn advance(&mut self, state: &mut State, steps: usize) {
+        for _ in 0..steps {
+            self.step_state(state);
         }
     }
 
-    fn step(&mut self) {
-        for i in 0..self.n {
-            let input_start_idx = i * self.k;
-            let idx = concat_bits(
-                &self.current,
-                &self.inputs[input_start_idx..input_start_idx + self.k],
-            );
-            self.next.set(i, (self.funcs[i] >> idx) & 1 != 0);
+    fn set_random_state(n: usize, state: &mut State, rng: &mut impl Rng) {
+        for i in 0..n {
+            state.set(i, rng.r#gen());
         }
-
-        std::mem::swap(&mut self.current, &mut self.next);
     }
 
+    /// Floyd's tortoise-and-hare cycle detection.
+    ///
+    /// Memory usage: O(N) — only a fixed number of `State` clones are live at
+    /// any one time (tortoise, hare, initial, and a few temporaries), regardless
+    /// of cycle length or transient length.
     pub fn perform_run(&mut self, rng: &mut impl Rng) -> RunResult {
-        self.set_random_state(rng);
-        self.seen.clear();
+        let n = self.n;
 
-        for t in 0..self.max_steps {
-            let state = self.current.clone();
-            if let Some(&prev_t) = self.seen.get(&state) {
-                let mut states: Vec<State> = self.seen.keys().cloned().collect();
-                states.sort_by_key(|t| self.seen[t]);
+        // ── record the initial state so we can replay from it ────────────────
+        let mut initial = State::new(n);
+        Self::set_random_state(n, &mut initial, rng);
 
+        // ── Phase 1: detect *a* meeting point ────────────────────────────────
+        // Tortoise takes 1 step, hare takes 2, per iteration.
+        // They must meet inside the cycle after at most μ + λ iterations
+        // (where μ = transient, λ = cycle length).
+        let mut tortoise = initial.clone();
+        let mut hare = initial.clone();
+
+        let mut phase1_steps = 0usize;
+        loop {
+            if phase1_steps >= self.max_steps {
                 return RunResult {
-                    transient: prev_t,
-                    cycle_length: t - prev_t,
-                    max_steps_reached: false,
-                    states,
+                    transient: 0,
+                    cycle_length: 0,
+                    max_steps_reached: true,
+                    cycle_id: None,
                 };
             }
-            self.seen.insert(state, t);
-            self.step();
+            self.advance(&mut tortoise, 1);
+            self.advance(&mut hare, 2);
+            phase1_steps += 1;
+            if tortoise == hare {
+                break;
+            }
+        }
+        // `phase1_steps` == number of single-steps tortoise has taken.
+        // Both pointers are now somewhere on the cycle.
+
+        // ── Phase 2: find cycle length λ ─────────────────────────────────────
+        // Keep tortoise fixed; advance hare one step at a time until it laps
+        // back to tortoise.
+        let mut cycle_length = 0usize;
+        // hare starts one step ahead so we enter the loop body at least once.
+        self.advance(&mut hare, 1);
+        cycle_length += 1;
+        while tortoise != hare {
+            self.advance(&mut hare, 1);
+            cycle_length += 1;
         }
 
-        let mut states: Vec<State> = self.seen.keys().cloned().collect();
-        states.sort_by_key(|t| self.seen[t]);
+        // ── Phase 3: find transient μ ─────────────────────────────────────────
+        // Reset one pointer to the initial state, keep the other at the meeting
+        // point (which is on the cycle, exactly λ steps from itself).
+        // Advance both one step at a time; they meet at the cycle entry point
+        // after exactly μ steps.
+        let mut p1 = initial.clone();
+        let mut p2 = initial.clone();
+        self.advance(&mut p2, phase1_steps); // p2 is back at the meeting point
+
+        let mut transient = 0usize;
+        while p1 != p2 {
+            self.advance(&mut p1, 1);
+            self.advance(&mut p2, 1);
+            transient += 1;
+        }
+        // p1 (== p2) is now the cycle entry state.
+
+        // ── Phase 4: find cycle_id (min state on the cycle) ──────────────────
+        let cycle_entry = p1; // rename for clarity
+        let mut min_state = cycle_entry.clone();
+        let mut cursor = cycle_entry.clone();
+        for _ in 1..cycle_length {
+            self.advance(&mut cursor, 1);
+            if cursor < min_state {
+                min_state = cursor.clone();
+            }
+        }
+
         RunResult {
-            transient: self.max_steps,
-            cycle_length: self.max_steps,
-            max_steps_reached: true,
-            states,
+            transient,
+            cycle_length,
+            max_steps_reached: false,
+            cycle_id: Some(min_state),
         }
     }
 }

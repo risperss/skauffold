@@ -259,15 +259,15 @@ fn run_experiment_5_dot_3(args: &Args) {
         if result.max_steps_reached {
             print!("MAX_STEPS_REACHED,")
         }
-        println!(
-            "{}",
-            result
-                .pairwise_hamming_distances()
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        );
+        // println!(
+        //     "{}",
+        //     result
+        //         .pairwise_hamming_distances()
+        //         .iter()
+        //         .map(|x| x.to_string())
+        //         .collect::<Vec<_>>()
+        //         .join(",")
+        // );
     }
 }
 
@@ -305,7 +305,7 @@ fn run_experiment_5_dot_4(args: &Args) {
             let run_seed: u64 = rng.r#gen();
             let mut run_rng = StdRng::seed_from_u64(run_seed);
             let result = net.perform_run(&mut run_rng);
-            if let Some(cycle_id) = result.cycle_id() {
+            if let Some(cycle_id) = result.cycle_id {
                 cycle_ids.insert(cycle_id);
             } else {
                 max_steps_reached += 1;
