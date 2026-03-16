@@ -26,8 +26,8 @@ impl State {
         self.0.set(i, val);
     }
 
-    fn get(&self, i: usize) -> bool {
-        self.0[i]
+    fn get(&self, i: u16) -> bool {
+        self.0[i as usize]
     }
 }
 
@@ -35,7 +35,7 @@ impl State {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn concat_bits(state: &State, inputs: &[usize]) -> u64 {
+fn concat_bits(state: &State, inputs: &[u16]) -> u64 {
     inputs
         .iter()
         .fold(0u64, |acc, &i| (acc << 1) | state.get(i) as u64)
@@ -68,7 +68,7 @@ pub struct Net {
     n: usize,
     k: usize,
     funcs: Vec<u64>,
-    inputs: Vec<usize>,
+    inputs: Vec<u16>,
     /// Scratch buffer – used during `step` to avoid allocation.
     buff: State,
     max_steps: usize,
@@ -83,7 +83,9 @@ impl Net {
             .map(|_| get_random_func(k, exclude_taut_and_cont, &mut rng))
             .collect();
 
-        let inputs: Vec<usize> = (0..n * k as usize).map(|_| rng.gen_range(0..n)).collect();
+        let inputs: Vec<u16> = (0..n * k as usize)
+            .map(|_| rng.gen_range(0..n) as u16)
+            .collect();
 
         Net {
             n,
