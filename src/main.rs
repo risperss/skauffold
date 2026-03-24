@@ -107,7 +107,7 @@ fn default(args: &Args) {
             net_seed,
         );
         let mut run_rng = StdRng::seed_from_u64(run_seed);
-        let result = net.perform_run(&mut run_rng);
+        let result = net.perform_run(&mut run_rng, true);
 
         if result.max_steps_reached {
             max_steps_count += 1;
@@ -159,7 +159,7 @@ toward short cycles. (b) A histogram of the lengths of state cycles in nets of 4
 elements which used neither tautology nor contradiction, but used the remaining 14
 Boolean functions of 2 variables equiprobably. The distribution is skewed toward short
 cycles.
-*
+
 FIG. 4. Log median cycle length as a function of log N, in nets using all 16 Boolean
 functions of two inputs (all Boolean functions used), and in nets disallowing these two func-
 tions (tautology and contradiction not used). The asymptotic slopes are about 0.3 and 0.6.
@@ -180,7 +180,7 @@ fn run_experiment_5_dot_1(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let result = net.perform_run(&mut run_rng);
+        let result = net.perform_run(&mut run_rng, true);
         println!("{},{}", result.cycle_length, result.max_steps_reached);
     }
 }
@@ -206,7 +206,7 @@ fn run_experiment_5_dot_2(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let result = net.perform_run(&mut run_rng);
+        let result = net.perform_run(&mut run_rng, true);
         println!(
             "{},{},{}",
             result.cycle_length, result.transient, result.max_steps_reached
@@ -245,7 +245,7 @@ fn run_experiment_5_dot_3(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let _result = net.perform_run(&mut run_rng);
+        let _result = net.perform_run(&mut run_rng, true);
     }
 }
 
@@ -282,7 +282,7 @@ fn run_experiment_5_dot_4(args: &Args) {
         for _ in 0..50 {
             let run_seed: u64 = rng.r#gen();
             let mut run_rng = StdRng::seed_from_u64(run_seed);
-            let result = net.perform_run(&mut run_rng);
+            let result = net.perform_run(&mut run_rng, true);
             if let Some(cycle_id) = result.cycle_id {
                 cycle_ids.insert(cycle_id);
             } else {

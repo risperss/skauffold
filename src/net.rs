@@ -1,6 +1,7 @@
 use bitvec::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 // ---------------------------------------------------------------------------
@@ -53,8 +54,7 @@ fn get_random_func(k: u32, exclude_taut_and_cont: bool, rng: &mut impl Rng) -> u
 // ---------------------------------------------------------------------------
 // Network
 // ---------------------------------------------------------------------------
-
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RunResult {
     pub transient: usize,
     pub cycle_length: usize,
@@ -62,6 +62,7 @@ pub struct RunResult {
     /// The lexicographic minimum state on the cycle, used as a stable cycle ID.
     /// `None` iff `max_steps_reached`.
     pub cycle_id: Option<State>,
+    pub states: Option<Vec<State>>,
 }
 
 pub struct Net {
@@ -121,17 +122,23 @@ impl Net {
         }
     }
 
+    pub fn perform_run(&mut self, rng: &mut impl Rng, use_floyd: bool) -> RunResult {
+        if use_floyd {
+            self.perform_run_floyd(rng)
+        } else {
+            self.perform_run_hashset(rng)
+        }
+    }
+
     /// Floyd's tortoise-and-hare cycle detection.
     ///
     /// Memory usage: O(N) — only a fixed number of `State` clones are live at
     /// any one time (tortoise, hare, initial, and a few temporaries), regardless
     /// of cycle length or transient length.
-    pub fn perform_run(&mut self, rng: &mut impl Rng) -> RunResult {
-        let n = self.n;
-
+    fn perform_run_floyd(&mut self, rng: &mut impl Rng) -> RunResult {
         // ── record the initial state so we can replay from it ────────────────
-        let mut initial = State::new(n);
-        Self::set_random_state(n, &mut initial, rng);
+        let mut initial = State::new(self.n);
+        Self::set_random_state(self.n, &mut initial, rng);
 
         // ── Phase 1: detect *a* meeting point ────────────────────────────────
         // Tortoise takes 1 step, hare takes 2, per iteration.
@@ -148,6 +155,7 @@ impl Net {
                     cycle_length: 0,
                     max_steps_reached: true,
                     cycle_id: None,
+                    states: None,
                 };
             }
             self.advance(&mut tortoise, 1);
@@ -205,6 +213,64 @@ impl Net {
             cycle_length,
             max_steps_reached: false,
             cycle_id: Some(min_state),
+            states: None,
         }
     }
+
+    // Use a hashset to record seen states
+    fn perform_run_hashset(&mut self, rng: &mut impl Rng) -> RunResult {
+        let mut seen: HashMap<State, usize> = HashMap::new();
+
+        let mut state = State::new(self.n);
+        Self::set_random_state(self.n, &mut state, rng);
+
+        for t in 0..self.max_steps {
+            if let Some(&prev_t) = seen.get(&state) {
+                let mut states: Vec<State> = seen.keys().cloned().collect();
+                states.sort_by_key(|t| seen[t]);
+                println!("{:?}", states[prev_t + 1..].iter());
+                return RunResult {
+                    transient: prev_t,
+                    cycle_length: t - prev_t,
+                    max_steps_reached: false,
+                    cycle_id: Some(states[prev_t + 1..].iter().min().cloned().unwrap()),
+                    states: Some(states),
+                };
+            }
+            seen.insert(state.clone(), t);
+            self.advance(&mut state, 1);
+        }
+
+        RunResult {
+            transient: 0,
+            cycle_length: 0,
+            max_steps_reached: true,
+            cycle_id: None,
+            states: None,
+        }
+    }
+}
+
+#[test]
+fn test_floyd_vs_hashset() {
+    let mut net = Net::new(10, 2, false, 10000, 537);
+
+    let mut run_rng_floyd = StdRng::seed_from_u64(537);
+    let mut run_rng_hashset = StdRng::seed_from_u64(537);
+
+    let result_floyd = net.perform_run(&mut run_rng_floyd, true);
+    let result_hashset = net.perform_run(&mut run_rng_hashset, false);
+
+    assert_eq!(
+        (
+            result_floyd.cycle_id,
+            result_floyd.cycle_length,
+            result_floyd.transient
+        ),
+        (
+            result_hashset.cycle_id,
+            result_hashset.cycle_length,
+            result_floyd.transient
+        )
+    );
 }
