@@ -76,11 +76,22 @@ impl Net {
         }
     }
 
-    pub fn perform_run(&mut self, rng: &mut impl Rng, use_floyd: bool) -> RunResult {
+    pub fn perform_run(
+        &mut self,
+        initial: Option<State>,
+        rng: Option<&mut impl Rng>,
+        use_floyd: bool,
+    ) -> RunResult {
+        assert_ne!(
+            initial.is_none(),
+            rng.is_none(),
+            "must pass in either an initial state, or an rng, but not neither or both"
+        );
+
         if use_floyd {
-            self.perform_run_floyd(rng)
+            self.perform_run_floyd(initial, rng)
         } else {
-            self.perform_run_hashset(rng)
+            self.perform_run_hashset(initial, rng)
         }
     }
 
@@ -89,10 +100,19 @@ impl Net {
     /// Memory usage: O(N) — only a fixed number of `State` clones are live at
     /// any one time (tortoise, hare, initial, and a few temporaries), regardless
     /// of cycle length or transient length.
-    fn perform_run_floyd(&mut self, rng: &mut impl Rng) -> RunResult {
+    fn perform_run_floyd(
+        &mut self,
+        initial_state: Option<State>,
+        rng: Option<&mut impl Rng>,
+    ) -> RunResult {
         // ── record the initial state so we can replay from it ────────────────
         let mut initial = State::new(self.n);
-        Self::set_random_state(self.n, &mut initial, rng);
+
+        if let Some(rng) = rng {
+            Self::set_random_state(self.n, &mut initial, rng);
+        } else {
+            initial = initial_state.unwrap();
+        }
 
         // ── Phase 1: detect *a* meeting point ────────────────────────────────
         // Tortoise takes 1 step, hare takes 2, per iteration.
@@ -171,11 +191,20 @@ impl Net {
         }
     }
 
-    fn perform_run_hashset(&mut self, rng: &mut impl Rng) -> RunResult {
+    fn perform_run_hashset(
+        &mut self,
+        initial_state: Option<State>,
+        rng: Option<&mut impl Rng>,
+    ) -> RunResult {
         let mut seen: HashMap<State, usize> = HashMap::new();
 
         let mut state = State::new(self.n);
-        Self::set_random_state(self.n, &mut state, rng);
+
+        if let Some(rng) = rng {
+            Self::set_random_state(self.n, &mut state, rng);
+        } else {
+            state = initial_state.unwrap();
+        }
 
         for t in 0..self.max_steps {
             if let Some(&prev_t) = seen.get(&state) {
@@ -207,7 +236,7 @@ impl Net {
 fn net_run_hashset_terminates_and_is_consistent() {
     let mut net = Net::new(100, 2, false, 10_000, 42);
     let mut rng = StdRng::seed_from_u64(42);
-    let result = net.perform_run(&mut rng, false);
+    let result = net.perform_run(None, Some(&mut rng), false);
 
     assert!(!result.max_steps_reached);
     assert!(result.cycle_length > 0);
@@ -218,7 +247,7 @@ fn net_run_hashset_terminates_and_is_consistent() {
 fn net_run_floyd_terminates_and_is_consistent() {
     let mut net = Net::new(10, 2, false, 10_000, 42);
     let mut rng = StdRng::seed_from_u64(42);
-    let result = net.perform_run(&mut rng, true);
+    let result = net.perform_run(None, Some(&mut rng), true);
 
     assert!(!result.max_steps_reached);
     assert!(result.cycle_length > 0);
@@ -232,8 +261,8 @@ fn net_floyd_and_hashset_agree_across_seeds() {
         let mut rng_floyd = StdRng::seed_from_u64(seed);
         let mut rng_hashset = StdRng::seed_from_u64(seed);
 
-        let floyd = net.perform_run(&mut rng_floyd, true);
-        let hashset = net.perform_run(&mut rng_hashset, false);
+        let floyd = net.perform_run(None, Some(&mut rng_floyd), true);
+        let hashset = net.perform_run(None, Some(&mut rng_hashset), false);
 
         assert_eq!(
             floyd.cycle_id, hashset.cycle_id,
@@ -255,7 +284,7 @@ fn net_max_steps_reached_when_limit_is_tiny() {
     // A limit of 2 steps can't find any cycle in a non-trivial net
     let mut net = Net::new(20, 3, false, 2, 522);
     let mut rng = StdRng::seed_from_u64(42);
-    let result = net.perform_run(&mut rng, true);
+    let result = net.perform_run(None, Some(&mut rng), true);
     assert!(result.max_steps_reached);
     assert!(result.cycle_id.is_none());
 }
@@ -267,10 +296,90 @@ fn net_cycle_id_is_deterministic_for_same_network_and_initial_state() {
     let mut rng1 = StdRng::seed_from_u64(77);
     let mut rng2 = StdRng::seed_from_u64(77);
 
-    let r1 = net.perform_run(&mut rng1, true);
-    let r2 = net.perform_run(&mut rng2, true);
+    let r1 = net.perform_run(None, Some(&mut rng1), true);
+    let r2 = net.perform_run(None, Some(&mut rng2), true);
 
     assert_eq!(r1.cycle_id, r2.cycle_id);
     assert_eq!(r1.cycle_length, r2.cycle_length);
     assert_eq!(r1.transient, r2.transient);
+}
+
+#[test]
+fn net_initial_state_is_respected_floyd() {
+    // Build two distinct initial states and confirm that passing each one
+    // explicitly produces the same result as passing it again (determinism),
+    // and that the two states can produce different cycle_ids (actually used).
+    let mut net = Net::new(64, 2, false, 10_000, 1);
+
+    let mut state_a = State::new(64);
+    // Populate with two distinct bit patterns.
+    for i in 0..64 {
+        state_a.set(i, i % 2 == 0);
+    }
+
+    // Same initial state twice must give identical results.
+    let r1 = net.perform_run(Some(state_a.clone()), None::<&mut StdRng>, true);
+    let r2 = net.perform_run(Some(state_a.clone()), None::<&mut StdRng>, true);
+    assert!(!r1.max_steps_reached);
+    assert_eq!(
+        r1.cycle_id, r2.cycle_id,
+        "floyd: same initial -> same cycle_id"
+    );
+    assert_eq!(
+        r1.transient, r2.transient,
+        "floyd: same initial -> same transient"
+    );
+}
+
+#[test]
+fn net_initial_state_is_respected_hashset() {
+    // Mirror of the floyd test for the hashset path.
+    let mut net = Net::new(64, 2, false, 10_000, 1);
+
+    let mut state_a = State::new(64);
+    for i in 0..64 {
+        state_a.set(i, i % 3 == 0);
+    }
+
+    let r1 = net.perform_run(Some(state_a.clone()), None::<&mut StdRng>, false);
+    let r2 = net.perform_run(Some(state_a.clone()), None::<&mut StdRng>, false);
+    assert!(!r1.max_steps_reached);
+    assert_eq!(
+        r1.cycle_id, r2.cycle_id,
+        "hashset: same initial -> same cycle_id"
+    );
+    assert_eq!(
+        r1.transient, r2.transient,
+        "hashset: same initial -> same transient"
+    );
+}
+
+#[test]
+fn net_initial_state_floyd_and_hashset_agree() {
+    // Passing the same Some(state) to both variants must yield the same cycle_id
+    // and cycle_length, mirroring the rng-driven agreement test.
+    let mut net = Net::new(128, 2, false, 10_000, 7);
+
+    let mut state = State::new(128);
+    for i in 0..128 {
+        state.set(i, (i * 7 + 3) % 5 < 2);
+    }
+
+    let floyd = net.perform_run(Some(state.clone()), None::<&mut StdRng>, true);
+    let hashset = net.perform_run(Some(state.clone()), None::<&mut StdRng>, false);
+
+    assert!(!floyd.max_steps_reached);
+    assert!(!hashset.max_steps_reached);
+    assert_eq!(
+        floyd.cycle_id, hashset.cycle_id,
+        "cycle_id mismatch between floyd and hashset"
+    );
+    assert_eq!(
+        floyd.cycle_length, hashset.cycle_length,
+        "cycle_length mismatch between floyd and hashset"
+    );
+    assert_eq!(
+        floyd.transient, hashset.transient,
+        "transient mismatch between floyd and hashset"
+    );
 }

@@ -29,8 +29,12 @@ impl State {
         self.0[i as usize]
     }
 
-    pub fn bitvec(&self) -> &BitVec {
-        &self.0
+    pub fn hamming_distance(&self, other: &State) -> usize {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .filter(|(a, b)| a != b)
+            .count()
     }
 }
 

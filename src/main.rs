@@ -1,7 +1,7 @@
 mod net;
 mod util;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use clap::Parser;
 use net::Net;
@@ -109,7 +109,7 @@ fn default(args: &Args) {
             net_seed,
         );
         let mut run_rng = StdRng::seed_from_u64(run_seed);
-        let result = net.perform_run(&mut run_rng, true);
+        let result = net.perform_run(None, Some(&mut run_rng), true);
 
         if result.max_steps_reached {
             max_steps_count += 1;
@@ -182,7 +182,7 @@ fn run_experiment_5_dot_1(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let result = net.perform_run(&mut run_rng, true);
+        let result = net.perform_run(None, Some(&mut run_rng), true);
         println!("{},{}", result.cycle_length, result.max_steps_reached);
     }
 }
@@ -208,7 +208,7 @@ fn run_experiment_5_dot_2(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let result = net.perform_run(&mut run_rng, true);
+        let result = net.perform_run(None, Some(&mut run_rng), true);
         println!(
             "{},{},{}",
             result.cycle_length, result.transient, result.max_steps_reached
@@ -247,8 +247,12 @@ fn run_experiment_5_dot_3(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let result = net.perform_run(&mut run_rng, false);
+        let result = net.perform_run(None, Some(&mut run_rng), false);
         if let Some(states) = result.states {
+            println!(
+                "cycle_length: {}, transient: {}",
+                result.cycle_length, result.transient
+            );
             println!(
                 "{}",
                 pairwise_hamming_distances(states)
@@ -261,10 +265,10 @@ fn run_experiment_5_dot_3(args: &Args) {
     }
 }
 
-pub fn pairwise_hamming_distances(states: Vec<State>) -> Vec<u32> {
+pub fn pairwise_hamming_distances(states: Vec<State>) -> Vec<usize> {
     states
         .windows(2)
-        .map(|pair| (pair[0].bitvec().clone() ^ pair[1].bitvec().clone()).count_ones() as u32)
+        .map(|pair| pair[0].hamming_distance(&pair[1]))
         .collect()
 }
 
@@ -280,7 +284,10 @@ fn run_experiment_5_dot_4(args: &Args) {
     let mut rng = StdRng::seed_from_u64(args.seed);
 
     // for a given net size
-    println!("Nodes: {:>4}", args.num_nodes);
+    if args.verbose {
+        eprintln!("Nodes: {:>4}", args.num_nodes);
+    }
+    println!("net_id,unique_cycles");
     let mut num_cycles: Vec<usize> = Vec::with_capacity(args.runs);
     let mut num_cycles_incl_msr: Vec<usize> = Vec::with_capacity(args.runs);
     // across some number of runs per net size
@@ -301,7 +308,7 @@ fn run_experiment_5_dot_4(args: &Args) {
         for _ in 0..50 {
             let run_seed: u64 = rng.r#gen();
             let mut run_rng = StdRng::seed_from_u64(run_seed);
-            let result = net.perform_run(&mut run_rng, true);
+            let result = net.perform_run(None, Some(&mut run_rng), true);
             if let Some(cycle_id) = result.cycle_id {
                 cycle_ids.insert(cycle_id);
             } else {
@@ -309,12 +316,15 @@ fn run_experiment_5_dot_4(args: &Args) {
             }
         }
         let num_unique_cycles = cycle_ids.len();
-        println!(
-            "Net: {:>2} had {:>4} unique cycles, {:>4} max steps reached",
-            run + 1,
-            num_unique_cycles,
-            max_steps_reached
-        );
+        if args.verbose {
+            eprintln!(
+                "Net: {:>2} had {:>4} unique cycles, {:>4} max steps reached",
+                run + 1,
+                num_unique_cycles,
+                max_steps_reached
+            );
+        }
+        println!("{},{}", run + 1, num_unique_cycles);
         num_cycles.push(num_unique_cycles);
         num_cycles_incl_msr.push(num_unique_cycles + max_steps_reached);
     }
@@ -335,7 +345,7 @@ fn run_experiment_5_dot_4(args: &Args) {
             .collect::<Vec<_>>()
             .join(",")
     );
-    println!(
+    eprintln!(
         "Median number of cycles for an n={:<4} net: {:>4}, (incl msr): {:>4}",
         args.num_nodes,
         median(&mut num_cycles),
@@ -359,9 +369,98 @@ FIG. 8. A scattergram of the minimum distance between cycles and cycle length in
 100 elements using all 16 Boolean functions of two variables. Minimum distance between
 cycles appears uncorrelated with cycle length. The median minimum distance is 0.05N.
 */
-fn run_experiment_5_dot_5(_args: &Args) {}
+fn run_experiment_5_dot_5(args: &Args) {
+    let mut rng = StdRng::seed_from_u64(args.seed);
+
+    println!("cycle_length,min_distance,net");
+
+    for net_idx in 0..args.runs {
+        let net_seed: u64 = rng.r#gen();
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
+
+        let mut cycles: HashMap<State, Vec<State>> = HashMap::new();
+
+        for _ in 0..50 {
+            let run_seed: u64 = rng.r#gen();
+            let mut run_rng = StdRng::seed_from_u64(run_seed);
+
+            let result = net.perform_run(None, Some(&mut run_rng), false);
+
+            if let (Some(cycle_id), Some(states)) = (result.cycle_id, result.states) {
+                cycles
+                    .entry(cycle_id)
+                    .or_insert_with(|| states[result.transient..].to_vec());
+            }
+            // Runs that hit max_steps are silently skipped: we have no cycle
+            // states to work with.
+        }
+
+        // Need at least two distinct cycles to compute an inter-cycle distance.
+        if cycles.len() < 2 {
+            continue;
+        }
+
+        // Collect into an indexed vec so we can do pairwise iteration cleanly.
+        let cycle_list: Vec<(&State, &Vec<State>)> = cycles.iter().collect();
+        let num_cycles = cycle_list.len();
+
+        for i in 0..num_cycles {
+            let (_, states_i) = cycle_list[i];
+            let cycle_len_i = states_i.len();
+
+            // Minimum Hamming distance from cycle i to any other cycle j.
+            let mut min_dist = usize::MAX;
+            'outer: for j in 0..num_cycles {
+                if i == j {
+                    continue;
+                }
+                let (_, states_j) = cycle_list[j];
+
+                for si in states_i {
+                    for sj in states_j {
+                        let d = si.hamming_distance(sj);
+                        if d < min_dist {
+                            min_dist = d;
+                        }
+
+                        if min_dist == 0 {
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            // Normalise by N so the result is comparable with the paper's
+            // "0.05N" median figure regardless of the --num-nodes setting.
+            let normalised = min_dist as f64 / args.num_nodes as f64;
+            println!("{},{:.6},{}", cycle_len_i, normalised, net_idx + 1);
+        }
+    }
+}
 
 /**
+The effect of state noise on the behavior of K = 2 random nets has been
+studied by perturbing the system as it traverses a cycle by arbitrarily reversing
+the value of a single gene for a single time moment. The perturbed net may
+either return to the behavior cycle from which it was dislodged, or run in to
+a different cycle. The program first built a net, then explored it from 50
+randomly chosen initial states, and stored the different state cycles discovered.
+Then all states which differed by the value of one gene from each state of the
+first cycle discovered were tried, and the cycle to which each of these states
+ran was stored. From this, a row listing the number of times perturbation
+by one unit of noise shifted the system from the first behavior cycle to each of
+the cycles was compiled. The procedure was repeated for all remaining
+cycles, generating a square matrix listing of the transitions between cycles
+induced by all possible single units of noise. Division of the number in each
+cell of the matrix by the row total results in a matrix of transition probabilities
+under the drive of random (1 unit) noise, which is a Markov chain (see Fig. 10).
+
 FIG. 9. (a) The total number of cycles reached from each cycle after it was perturbed in
 all possible ways by one unit of noise correlated with the number of cycles in the net being
 perturbed. The data is from nets using neither tautology nor contradiction, with N = 191,
@@ -369,4 +468,169 @@ and 400. (b) The number of cycles reached from each cycle with a probability gre
 0.01 in the same nets as those of (a). In nets using all 16 Boolean functions, the total number
 of cycles reached from each cycle is about the same as the data in (b).
 */
-fn run_experiment_5_dot_6(_args: &Args) {}
+fn run_experiment_5_dot_6(args: &Args) {
+    // Paper: N=191 and 400, exclude_taut_and_cont=true for Fig 9.
+    // Recommended invocation: cargo run -- -x 6 -e -n 191 -r 10
+    //
+    // Phase 1: discover all cycles in a net via 50 random hashset runs.
+    //          HashMap<cycle_id, Vec<State>> — on-cycle states only.
+    //
+    // Phase 2: for every (cycle i, state s, bit b), flip bit b in s and run
+    //          the perturbed state to its attractor with Floyd. Accumulate
+    //          into count matrix[i][j], plus per-row unknown/timeout counters.
+    //
+    // Phase 3: normalise rows -> Markov transition probability matrix.
+    //
+    // stdout CSV: per-cycle summary rows for Fig 9 plots.
+    // stderr:     full count and probability matrices when --verbose.
+
+    let mut rng = StdRng::seed_from_u64(args.seed);
+
+    println!(
+        "net,num_cycles,cycle_idx,cycle_length,total_reachable,reachable_above_0.01,unknown_count,timeout_count"
+    );
+
+    for net_idx in 0..args.runs {
+        let net_seed: u64 = rng.r#gen();
+        let mut net = Net::new(
+            args.num_nodes,
+            args.num_inputs,
+            args.exclude_taut_and_cont,
+            args.max_steps,
+            net_seed,
+        );
+
+        // ── Phase 1: discover cycles ─────────────────────────────────────────
+        let mut cycles: HashMap<State, Vec<State>> = HashMap::new();
+
+        for _ in 0..50 {
+            let run_seed: u64 = rng.r#gen();
+            let mut run_rng = StdRng::seed_from_u64(run_seed);
+            // Hashset variant needed: only one that returns the state trajectory.
+            let result = net.perform_run(None, Some(&mut run_rng), false);
+
+            if let (Some(cycle_id), Some(states)) = (result.cycle_id, result.states) {
+                cycles
+                    .entry(cycle_id)
+                    .or_insert_with(|| states[result.transient..].to_vec());
+            }
+        }
+
+        // A single-cycle net produces a trivially diagonal matrix — no
+        // inter-cycle transitions are possible. Skip it.
+        if cycles.len() < 2 {
+            continue;
+        }
+
+        // Assign stable integer indices by sorting on cycle_id (the lex-min
+        // on-cycle state), guaranteeing identical ordering across runs with
+        // the same seed.
+        let mut cycle_list: Vec<(State, Vec<State>)> = cycles.into_iter().collect();
+        cycle_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let num_cycles = cycle_list.len();
+
+        // Reverse lookup: cycle_id -> column index in the matrix.
+        let cycle_index: HashMap<&State, usize> = cycle_list
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| (id, i))
+            .collect();
+
+        // ── Phase 2: perturbation sweep ──────────────────────────────────────
+        // matrix[i][j]: how many single-bit perturbations of any state on
+        //               cycle i lead to cycle j.
+        // unknown_counts[i]: perturbations that landed on a cycle not found
+        //                    in phase 1 (undercounting of cycles is possible
+        //                    with only 50 starts).
+        // timeout_counts[i]: perturbations that hit max_steps.
+        let mut matrix = vec![vec![0usize; num_cycles]; num_cycles];
+        let mut unknown_counts = vec![0usize; num_cycles];
+        let mut timeout_counts = vec![0usize; num_cycles];
+
+        for (i, (_, cycle_states)) in cycle_list.iter().enumerate() {
+            for state in cycle_states {
+                for bit in 0..args.num_nodes {
+                    // Clone once and flip the target bit.
+                    let mut perturbed = state.clone();
+                    let current = perturbed.get(bit as u16);
+                    perturbed.set(bit, !current);
+
+                    // Floyd is O(1) memory and we only need the cycle_id here.
+                    let result = net.perform_run(Some(perturbed), None::<&mut StdRng>, true);
+
+                    if result.max_steps_reached {
+                        timeout_counts[i] += 1;
+                    } else if let Some(dest_id) = result.cycle_id {
+                        if let Some(&j) = cycle_index.get(&dest_id) {
+                            matrix[i][j] += 1;
+                        } else {
+                            // A cycle that exists in the net but wasn't
+                            // discovered during the 50-start phase 1 sweep.
+                            unknown_counts[i] += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Phase 3: normalise and emit ──────────────────────────────────────
+        if args.verbose {
+            eprintln!("Net {:>3}: {} cycles", net_idx + 1, num_cycles);
+            eprintln!("  Raw count matrix (rows = source cycle, cols = dest cycle):");
+            for row in &matrix {
+                let cells: Vec<String> = row.iter().map(|x| format!("{:>6}", x)).collect();
+                eprintln!("    [{}]", cells.join(", "));
+            }
+            eprintln!("  Transition probability matrix:");
+        }
+
+        for (i, (_, cycle_states)) in cycle_list.iter().enumerate() {
+            let row_total: usize = matrix[i].iter().sum();
+            let cycle_length = cycle_states.len();
+
+            // Fig 9a: total distinct destination cycles reached (prob > 0).
+            let total_reachable = matrix[i].iter().filter(|&&x| x > 0).count();
+
+            // Fig 9b: destination cycles reached with probability > 0.01.
+            let reachable_above_001 = if row_total > 0 {
+                matrix[i]
+                    .iter()
+                    .filter(|&&x| x as f64 / row_total as f64 > 0.01)
+                    .count()
+            } else {
+                0
+            };
+
+            if args.verbose {
+                let probs: Vec<String> = matrix[i]
+                    .iter()
+                    .map(|&x| {
+                        if row_total > 0 {
+                            format!("{:.4}", x as f64 / row_total as f64)
+                        } else {
+                            " N/A ".to_string()
+                        }
+                    })
+                    .collect();
+                eprintln!(
+                    "    [{}]  unknown={} timeout={}",
+                    probs.join(", "),
+                    unknown_counts[i],
+                    timeout_counts[i]
+                );
+            }
+
+            println!(
+                "{},{},{},{},{},{},{},{}",
+                net_idx + 1,
+                num_cycles,
+                i,
+                cycle_length,
+                total_reachable,
+                reachable_above_001,
+                unknown_counts[i],
+                timeout_counts[i],
+            );
+        }
+    }
+}
