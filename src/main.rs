@@ -514,7 +514,7 @@ fn run_experiment_5_dot_6(args: &Args) {
         // ── Phase 1: discover cycles ─────────────────────────────────────────
         let mut cycles: HashMap<State, Vec<State>> = HashMap::new();
 
-        for _ in 0..50 {
+        for _ in 0..args.start_points_per_net {
             let run_seed: u64 = rng.r#gen();
             let mut run_rng = StdRng::seed_from_u64(run_seed);
             // Hashset variant needed: only one that returns the state trajectory.
