@@ -247,8 +247,25 @@ fn run_experiment_5_dot_3(args: &Args) {
             args.max_steps,
             net_seed,
         );
-        let _result = net.perform_run(&mut run_rng, true);
+        let result = net.perform_run(&mut run_rng, false);
+        if let Some(states) = result.states {
+            println!(
+                "{}",
+                pairwise_hamming_distances(states)
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
     }
+}
+
+pub fn pairwise_hamming_distances(states: Vec<State>) -> Vec<u32> {
+    states
+        .windows(2)
+        .map(|pair| (pair[0].bitvec().clone() ^ pair[1].bitvec().clone()).count_ones() as u32)
+        .collect()
 }
 
 /**
@@ -337,14 +354,14 @@ is about 10. When a net embodies many cycles, these frequently form sets
 within which each cycle is a minimum distance of one from one or two
 members of the set. Between sets, the distance is larger and may be as great
 as 0*3N.
+
+FIG. 8. A scattergram of the minimum distance between cycles and cycle length in nets of
+100 elements using all 16 Boolean functions of two variables. Minimum distance between
+cycles appears uncorrelated with cycle length. The median minimum distance is 0.05N.
 */
 fn run_experiment_5_dot_5(_args: &Args) {}
 
 /**
-FIG. 8. A scattergram of the minimum distance between cycles and cycle length in nets of
-100 elements using all 16 Boolean functions of two variables. Minimum distance between
-cycles appears uncorrelated with cycle length. The median minimum distance is 0.05N.
-
 FIG. 9. (a) The total number of cycles reached from each cycle after it was perturbed in
 all possible ways by one unit of noise correlated with the number of cycles in the net being
 perturbed. The data is from nets using neither tautology nor contradiction, with N = 191,

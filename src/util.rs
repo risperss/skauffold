@@ -28,6 +28,10 @@ impl State {
     pub fn get(&self, i: u16) -> bool {
         self.0[i as usize]
     }
+
+    pub fn bitvec(&self) -> &BitVec {
+        &self.0
+    }
 }
 
 pub fn concat_bits(state: &State, inputs: &[u16]) -> u64 {
