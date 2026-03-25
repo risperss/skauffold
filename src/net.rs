@@ -2,7 +2,8 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 
-use crate::util::{State, concat_bits, get_random_func};
+use crate::NKInterpretation;
+use crate::util::{State, concat_bits, generate_inputs, get_random_func};
 
 // ---------------------------------------------------------------------------
 // Network
@@ -30,7 +31,14 @@ pub struct Net {
 }
 
 impl Net {
-    pub fn new(n: usize, k: u32, exclude_taut_and_cont: bool, max_steps: usize, seed: u64) -> Self {
+    pub fn new(
+        n: usize,
+        k: u32,
+        nk_interpretation: NKInterpretation,
+        exclude_taut_and_cont: bool,
+        max_steps: usize,
+        seed: u64,
+    ) -> Self {
         assert!(k <= 6, "k must be <= 6");
         let mut rng = StdRng::seed_from_u64(seed);
 
@@ -38,9 +46,7 @@ impl Net {
             .map(|_| get_random_func(k, exclude_taut_and_cont, &mut rng))
             .collect();
 
-        let inputs: Vec<u16> = (0..n * k as usize)
-            .map(|_| rng.gen_range(0..n) as u16)
-            .collect();
+        let inputs: Vec<u16> = generate_inputs(n, k, nk_interpretation, &mut rng);
 
         Net {
             n,
@@ -234,7 +240,7 @@ impl Net {
 
 #[test]
 fn net_run_hashset_terminates_and_is_consistent() {
-    let mut net = Net::new(100, 2, false, 10_000, 42);
+    let mut net = Net::new(100, 2, NKInterpretation::AllN, false, 10_000, 42);
     let mut rng = StdRng::seed_from_u64(42);
     let result = net.perform_run(None, Some(&mut rng), false);
 
@@ -245,7 +251,7 @@ fn net_run_hashset_terminates_and_is_consistent() {
 
 #[test]
 fn net_run_floyd_terminates_and_is_consistent() {
-    let mut net = Net::new(10, 2, false, 10_000, 42);
+    let mut net = Net::new(10, 2, NKInterpretation::AllN, false, 10_000, 42);
     let mut rng = StdRng::seed_from_u64(42);
     let result = net.perform_run(None, Some(&mut rng), true);
 
@@ -257,7 +263,7 @@ fn net_run_floyd_terminates_and_is_consistent() {
 #[test]
 fn net_floyd_and_hashset_agree_across_seeds() {
     for seed in [0u64, 1, 42, 537, 9999] {
-        let mut net = Net::new(512, 2, false, 10_000, seed);
+        let mut net = Net::new(512, 2, NKInterpretation::AllN, false, 10_000, seed);
         let mut rng_floyd = StdRng::seed_from_u64(seed);
         let mut rng_hashset = StdRng::seed_from_u64(seed);
 
@@ -282,7 +288,7 @@ fn net_floyd_and_hashset_agree_across_seeds() {
 #[test]
 fn net_max_steps_reached_when_limit_is_tiny() {
     // A limit of 2 steps can't find any cycle in a non-trivial net
-    let mut net = Net::new(20, 3, false, 2, 522);
+    let mut net = Net::new(20, 3, NKInterpretation::AllN, false, 2, 522);
     let mut rng = StdRng::seed_from_u64(42);
     let result = net.perform_run(None, Some(&mut rng), true);
     assert!(result.max_steps_reached);
@@ -292,7 +298,7 @@ fn net_max_steps_reached_when_limit_is_tiny() {
 #[test]
 fn net_cycle_id_is_deterministic_for_same_network_and_initial_state() {
     // Same net seed + same run seed -> identical RunResult both times.
-    let mut net = Net::new(12, 2, false, 10_000, 522);
+    let mut net = Net::new(12, 2, NKInterpretation::AllN, false, 10_000, 522);
     let mut rng1 = StdRng::seed_from_u64(77);
     let mut rng2 = StdRng::seed_from_u64(77);
 
@@ -309,7 +315,7 @@ fn net_initial_state_is_respected_floyd() {
     // Build two distinct initial states and confirm that passing each one
     // explicitly produces the same result as passing it again (determinism),
     // and that the two states can produce different cycle_ids (actually used).
-    let mut net = Net::new(64, 2, false, 10_000, 1);
+    let mut net = Net::new(64, 2, NKInterpretation::AllN, false, 10_000, 1);
 
     let mut state_a = State::new(64);
     // Populate with two distinct bit patterns.
@@ -334,7 +340,7 @@ fn net_initial_state_is_respected_floyd() {
 #[test]
 fn net_initial_state_is_respected_hashset() {
     // Mirror of the floyd test for the hashset path.
-    let mut net = Net::new(64, 2, false, 10_000, 1);
+    let mut net = Net::new(64, 2, NKInterpretation::AllN, false, 10_000, 1);
 
     let mut state_a = State::new(64);
     for i in 0..64 {
@@ -358,7 +364,7 @@ fn net_initial_state_is_respected_hashset() {
 fn net_initial_state_floyd_and_hashset_agree() {
     // Passing the same Some(state) to both variants must yield the same cycle_id
     // and cycle_length, mirroring the rng-driven agreement test.
-    let mut net = Net::new(128, 2, false, 10_000, 7);
+    let mut net = Net::new(128, 2, NKInterpretation::AllN, false, 10_000, 7);
 
     let mut state = State::new(128);
     for i in 0..128 {

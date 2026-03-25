@@ -1,14 +1,34 @@
 mod net;
 mod util;
 
+use core::fmt;
 use std::collections::{HashMap, HashSet};
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use net::Net;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::util::State;
+
+#[derive(ValueEnum, Clone, Copy, Debug, Default)]
+#[clap(rename_all = "kebab-case")] // Optional: format command-line input to kebab-case
+enum NKInterpretation {
+    #[default]
+    AllN,
+    AllNExceptSelf,
+    SelfPlusOtherN,
+}
+
+impl fmt::Display for NKInterpretation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NKInterpretation::AllN => write!(f, "all-n"),
+            NKInterpretation::AllNExceptSelf => write!(f, "all-n-except-self"),
+            NKInterpretation::SelfPlusOtherN => write!(f, "self-plus-other-n"),
+        }
+    }
+}
 
 /// Random boolean network simulation
 #[derive(Parser, Debug)]
@@ -45,6 +65,14 @@ struct Args {
     /// Print per-run details
     #[arg(short = 'v', long, default_value_t = false)]
     verbose: bool,
+
+    /// Number of random starting points in various experiments
+    #[arg(short = 'p', long, default_value_t = 50)]
+    start_points_per_net: usize,
+
+    /// Interpretation of NK networks
+    #[arg(short = 'i', long, default_value_t = NKInterpretation::AllN)]
+    nk_interpretation: NKInterpretation,
 }
 
 fn mean(data: &[f64]) -> f64 {
@@ -64,13 +92,15 @@ fn stdev(data: &[f64]) -> f64 {
 fn printargs(args: &Args) {
     eprintln!("Boolean Network Simulation");
     eprintln!(
-        "  n={}, k={}, exclude_taut_and_cont={}, runs={}, seed={}, max_steps={}",
+        "  n={}, k={}, exclude_taut_and_cont={}, runs={}, seed={}, max_steps={}, start_points={}, nk-interpretation={}",
         args.num_nodes,
         args.num_inputs,
         args.exclude_taut_and_cont,
         args.runs,
         args.seed,
         args.max_steps,
+        args.start_points_per_net,
+        args.nk_interpretation,
     );
     eprintln!();
 }
@@ -104,6 +134,7 @@ fn default(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
@@ -155,9 +186,11 @@ fn default(args: &Args) {
 }
 
 /**
-FIG. 3. (a) A histogram of the lengths of state cycles in nets of 400 binary elements which
+FIG. 3.
+(a) A histogram of the lengths of state cycles in nets of 400 binary elements which
 used all 16 Boolean functions of two variables equiprobably. The distribution is skewed
-toward short cycles. (b) A histogram of the lengths of state cycles in nets of 400 binary
+toward short cycles.
+(b) A histogram of the lengths of state cycles in nets of 400 binary
 elements which used neither tautology nor contradiction, but used the remaining 14
 Boolean functions of 2 variables equiprobably. The distribution is skewed toward short
 cycles.
@@ -178,6 +211,7 @@ fn run_experiment_5_dot_1(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
@@ -204,6 +238,7 @@ fn run_experiment_5_dot_2(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
@@ -243,21 +278,19 @@ fn run_experiment_5_dot_3(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
         );
         let result = net.perform_run(None, Some(&mut run_rng), false);
         if let Some(states) = result.states {
-            println!(
-                "cycle_length: {}, transient: {}",
-                result.cycle_length, result.transient
-            );
+            println!("{}, {}", result.transient, result.cycle_length);
             println!(
                 "{}",
                 pairwise_hamming_distances(states)
                     .iter()
-                    .map(|x| x.to_string())
+                    .map(|x| (*x as f64 / args.num_nodes as f64).to_string())
                     .collect::<Vec<_>>()
                     .join(",")
             );
@@ -283,11 +316,7 @@ plot. The slope is about 0.3. The expected number of cycles is slightly less tha
 fn run_experiment_5_dot_4(args: &Args) {
     let mut rng = StdRng::seed_from_u64(args.seed);
 
-    // for a given net size
-    if args.verbose {
-        eprintln!("Nodes: {:>4}", args.num_nodes);
-    }
-    println!("net_id,unique_cycles");
+    println!("unique_cycles,msr");
     let mut num_cycles: Vec<usize> = Vec::with_capacity(args.runs);
     let mut num_cycles_incl_msr: Vec<usize> = Vec::with_capacity(args.runs);
     // across some number of runs per net size
@@ -300,12 +329,13 @@ fn run_experiment_5_dot_4(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
         );
         // 50 times per net
-        for _ in 0..50 {
+        for _ in 0..args.start_points_per_net {
             let run_seed: u64 = rng.r#gen();
             let mut run_rng = StdRng::seed_from_u64(run_seed);
             let result = net.perform_run(None, Some(&mut run_rng), true);
@@ -324,33 +354,12 @@ fn run_experiment_5_dot_4(args: &Args) {
                 max_steps_reached
             );
         }
-        println!("{},{}", run + 1, num_unique_cycles);
+        println!("{},{}", num_unique_cycles, max_steps_reached);
         num_cycles.push(num_unique_cycles);
         num_cycles_incl_msr.push(num_unique_cycles + max_steps_reached);
     }
     // print the median number of cycles found in a net of that size
-    println!(
-        "{}",
-        num_cycles
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    println!(
-        "{}",
-        num_cycles_incl_msr
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    eprintln!(
-        "Median number of cycles for an n={:<4} net: {:>4}, (incl msr): {:>4}",
-        args.num_nodes,
-        median(&mut num_cycles),
-        median(&mut num_cycles_incl_msr),
-    )
+    eprintln!("median={}", median(&mut num_cycles),)
 }
 
 /**
@@ -379,6 +388,7 @@ fn run_experiment_5_dot_5(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
@@ -495,6 +505,7 @@ fn run_experiment_5_dot_6(args: &Args) {
         let mut net = Net::new(
             args.num_nodes,
             args.num_inputs,
+            args.nk_interpretation,
             args.exclude_taut_and_cont,
             args.max_steps,
             net_seed,
