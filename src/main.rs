@@ -1,4 +1,6 @@
 mod net;
+mod util;
+
 use std::collections::HashSet;
 
 use clap::Parser;
@@ -6,9 +8,9 @@ use net::Net;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use crate::net::State;
+use crate::util::State;
 
-/// Boolean network attractor simulation
+/// Random boolean network simulation
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {

@@ -1,59 +1,13 @@
-use bitvec::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
-// ---------------------------------------------------------------------------
-// Bit-packed state vector
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct State(BitVec);
-
-impl Hash for State {
-    fn hash<H: Hasher>(&self, h: &mut H) {
-        self.0.len().hash(h);
-        self.0.as_raw_slice().hash(h);
-    }
-}
-
-impl State {
-    fn new(len: usize) -> Self {
-        State(bitvec![0; len])
-    }
-
-    fn set(&mut self, i: usize, val: bool) {
-        self.0.set(i, val);
-    }
-
-    fn get(&self, i: u16) -> bool {
-        self.0[i as usize]
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn concat_bits(state: &State, inputs: &[u16]) -> u64 {
-    inputs
-        .iter()
-        .fold(0u64, |acc, &i| (acc << 1) | state.get(i) as u64)
-}
-
-fn get_random_func(k: u32, exclude_taut_and_cont: bool, rng: &mut impl Rng) -> u64 {
-    let max = (1u64 << (1u64 << k)) - 1;
-    if exclude_taut_and_cont {
-        rng.gen_range(1..max)
-    } else {
-        rng.gen_range(0..=max)
-    }
-}
+use crate::util::{State, concat_bits, get_random_func};
 
 // ---------------------------------------------------------------------------
 // Network
 // ---------------------------------------------------------------------------
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct RunResult {
     pub transient: usize,
@@ -142,8 +96,8 @@ impl Net {
 
         // ── Phase 1: detect *a* meeting point ────────────────────────────────
         // Tortoise takes 1 step, hare takes 2, per iteration.
-        // They must meet inside the cycle after at most μ + λ iterations
-        // (where μ = transient, λ = cycle length).
+        // They must meet inside the cycle after at most mu + lambda iterations
+        // (where mu = transient, lambda = cycle length).
         let mut tortoise = initial.clone();
         let mut hare = initial.clone();
 
@@ -168,7 +122,7 @@ impl Net {
         // `phase1_steps` == number of single-steps tortoise has taken.
         // Both pointers are now somewhere on the cycle.
 
-        // ── Phase 2: find cycle length λ ─────────────────────────────────────
+        // ── Phase 2: find cycle length lambda ────────────────────────────────
         // Keep tortoise fixed; advance hare one step at a time until it laps
         // back to tortoise.
         let mut cycle_length = 0usize;
@@ -180,11 +134,11 @@ impl Net {
             cycle_length += 1;
         }
 
-        // ── Phase 3: find transient μ ─────────────────────────────────────────
+        // ── Phase 3: find transient mu ────────────────────────────────────────
         // Reset one pointer to the initial state, keep the other at the meeting
-        // point (which is on the cycle, exactly λ steps from itself).
+        // point (which is on the cycle, exactly lamdba steps from itself).
         // Advance both one step at a time; they meet at the cycle entry point
-        // after exactly μ steps.
+        // after exactly mu steps.
         let mut p1 = initial.clone();
         let mut p2 = initial.clone();
         self.advance(&mut p2, phase1_steps); // p2 is back at the meeting point
@@ -217,7 +171,6 @@ impl Net {
         }
     }
 
-    // Use a hashset to record seen states
     fn perform_run_hashset(&mut self, rng: &mut impl Rng) -> RunResult {
         let mut seen: HashMap<State, usize> = HashMap::new();
 
@@ -228,12 +181,11 @@ impl Net {
             if let Some(&prev_t) = seen.get(&state) {
                 let mut states: Vec<State> = seen.keys().cloned().collect();
                 states.sort_by_key(|t| seen[t]);
-                println!("{:?}", states[prev_t + 1..].iter());
                 return RunResult {
                     transient: prev_t,
                     cycle_length: t - prev_t,
                     max_steps_reached: false,
-                    cycle_id: Some(states[prev_t + 1..].iter().min().cloned().unwrap()),
+                    cycle_id: Some(states[prev_t..].iter().min().cloned().unwrap()),
                     states: Some(states),
                 };
             }
@@ -252,25 +204,73 @@ impl Net {
 }
 
 #[test]
-fn test_floyd_vs_hashset() {
-    let mut net = Net::new(10, 2, false, 10000, 537);
+fn net_run_hashset_terminates_and_is_consistent() {
+    let mut net = Net::new(100, 2, false, 10_000, 42);
+    let mut rng = StdRng::seed_from_u64(42);
+    let result = net.perform_run(&mut rng, false);
 
-    let mut run_rng_floyd = StdRng::seed_from_u64(537);
-    let mut run_rng_hashset = StdRng::seed_from_u64(537);
+    assert!(!result.max_steps_reached);
+    assert!(result.cycle_length > 0);
+    assert!(result.cycle_id.is_some());
+}
 
-    let result_floyd = net.perform_run(&mut run_rng_floyd, true);
-    let result_hashset = net.perform_run(&mut run_rng_hashset, false);
+#[test]
+fn net_run_floyd_terminates_and_is_consistent() {
+    let mut net = Net::new(10, 2, false, 10_000, 42);
+    let mut rng = StdRng::seed_from_u64(42);
+    let result = net.perform_run(&mut rng, true);
 
-    assert_eq!(
-        (
-            result_floyd.cycle_id,
-            result_floyd.cycle_length,
-            result_floyd.transient
-        ),
-        (
-            result_hashset.cycle_id,
-            result_hashset.cycle_length,
-            result_floyd.transient
-        )
-    );
+    assert!(!result.max_steps_reached);
+    assert!(result.cycle_length > 0);
+    assert!(result.cycle_id.is_some());
+}
+
+#[test]
+fn net_floyd_and_hashset_agree_across_seeds() {
+    for seed in [0u64, 1, 42, 537, 9999] {
+        let mut net = Net::new(512, 2, false, 10_000, seed);
+        let mut rng_floyd = StdRng::seed_from_u64(seed);
+        let mut rng_hashset = StdRng::seed_from_u64(seed);
+
+        let floyd = net.perform_run(&mut rng_floyd, true);
+        let hashset = net.perform_run(&mut rng_hashset, false);
+
+        assert_eq!(
+            floyd.cycle_id, hashset.cycle_id,
+            "seed={seed}: cycle_id mismatch"
+        );
+        assert_eq!(
+            floyd.cycle_length, hashset.cycle_length,
+            "seed={seed}: cycle_length mismatch"
+        );
+        assert_eq!(
+            floyd.max_steps_reached, hashset.max_steps_reached,
+            "seed={seed}: max_steps_reached mismatch"
+        );
+    }
+}
+
+#[test]
+fn net_max_steps_reached_when_limit_is_tiny() {
+    // A limit of 2 steps can't find any cycle in a non-trivial net
+    let mut net = Net::new(20, 3, false, 2, 522);
+    let mut rng = StdRng::seed_from_u64(42);
+    let result = net.perform_run(&mut rng, true);
+    assert!(result.max_steps_reached);
+    assert!(result.cycle_id.is_none());
+}
+
+#[test]
+fn net_cycle_id_is_deterministic_for_same_network_and_initial_state() {
+    // Same net seed + same run seed -> identical RunResult both times.
+    let mut net = Net::new(12, 2, false, 10_000, 522);
+    let mut rng1 = StdRng::seed_from_u64(77);
+    let mut rng2 = StdRng::seed_from_u64(77);
+
+    let r1 = net.perform_run(&mut rng1, true);
+    let r2 = net.perform_run(&mut rng2, true);
+
+    assert_eq!(r1.cycle_id, r2.cycle_id);
+    assert_eq!(r1.cycle_length, r2.cycle_length);
+    assert_eq!(r1.transient, r2.transient);
 }
