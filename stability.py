@@ -6,21 +6,23 @@ def main():
     subprocess.run(["cargo", "build", "--release"])
 
     output_dir = "stability_output"
+    max_val = 1024
     runs = 500
 
     n_vals = [15, 50, 100, 191, 400, 1024, 2048]
+    e_vals = ["", "-e"]
     k_vals = [2, 3, 4]
-    exclude_taut_and_cond_vals = ["", "-e"]
+    i_vals = ["all-n", "all-n-except-self", "self-plus-other-n"]
 
-    for i, (n, k, e) in enumerate(
-        itertools.product(n_vals, k_vals, exclude_taut_and_cond_vals)
+    for i, (n, k, e, i_type) in enumerate(
+        itertools.product(n_vals, k_vals, e_vals, i_vals)
     ):
         subprocess.run(
             " ".join(
                 [
-                    "./target/release/skauffold -x 1 -m 1024",
-                    f"-s {i} -n {n} -r {runs} {e}",
-                    f"| tee {output_dir}/fig_4_n{n}_k{k}_{'excl' if e else 'all'}.csv",
+                    "./target/release/skauffold -x 1",
+                    f"-m {max_val} -s {i} -n {n} -r {runs} -i {i_type} {e}",
+                    f"| tee {output_dir}/fig_4_n{n}_k{k}_{'excl' if e else 'all'}_{i_type}.csv",
                 ]
             ),
             shell=True,
