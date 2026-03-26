@@ -217,7 +217,16 @@ fn run_experiment_5_dot_1(args: &Args) {
             net_seed,
         );
         let result = net.perform_run(None, Some(&mut run_rng), true);
-        println!("{},{}", result.cycle_length, result.max_steps_reached);
+        println!(
+            "{},{}",
+            if result.max_steps_reached {
+                // allows for slightly easier data processing
+                args.max_steps
+            } else {
+                result.cycle_length
+            },
+            result.max_steps_reached
+        );
     }
 }
 
