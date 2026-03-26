@@ -9,7 +9,7 @@ def main():
     max_val = 1024
     runs = 500
 
-    n_vals = [15, 50, 100, 191, 400, 1024, 2048]
+    n_vals = [15, 50, 100, 191, 400, 1024, 2048, 4096, 8192, 16384]
     e_vals = ["", "-e"]
     k_vals = [2, 3, 4]
     i_vals = ["all-n", "all-n-except-self", "self-plus-other-n"]
