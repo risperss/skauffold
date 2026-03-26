@@ -12,7 +12,7 @@ use rand::{Rng, SeedableRng};
 use crate::util::State;
 
 #[derive(ValueEnum, Clone, Copy, Debug, Default)]
-#[clap(rename_all = "kebab-case")] // Optional: format command-line input to kebab-case
+#[clap(rename_all = "kebab-case")]
 enum NKInterpretation {
     #[default]
     AllN,
@@ -488,26 +488,14 @@ and 400. (b) The number of cycles reached from each cycle with a probability gre
 of cycles reached from each cycle is about the same as the data in (b).
 */
 fn run_experiment_5_dot_6(args: &Args) {
-    // Paper: N=191 and 400, exclude_taut_and_cont=true for Fig 9.
-    // Recommended invocation: cargo run -- -x 6 -e -n 191 -r 10
-    //
-    // Phase 1: discover all cycles in a net via 50 random hashset runs.
-    //          HashMap<cycle_id, Vec<State>> — on-cycle states only.
-    //
-    // Phase 2: for every (cycle i, state s, bit b), flip bit b in s and run
-    //          the perturbed state to its attractor with Floyd. Accumulate
-    //          into count matrix[i][j], plus per-row unknown/timeout counters.
-    //
-    // Phase 3: normalise rows -> Markov transition probability matrix.
-    //
-    // stdout CSV: per-cycle summary rows for Fig 9 plots.
-    // stderr:     full count and probability matrices when --verbose.
-
     let mut rng = StdRng::seed_from_u64(args.seed);
 
-    println!(
-        "net,num_cycles,cycle_idx,cycle_length,total_reachable,reachable_above_0.01,unknown_count,timeout_count"
-    );
+    // eh, if they pass verbose just output the matrix to stdout. makes life so much easier
+    if !args.verbose {
+        println!(
+            "net,num_cycles,cycle_idx,cycle_length,total_reachable,reachable_above_0.01,unknown_count,timeout_count"
+        );
+    }
 
     for net_idx in 0..args.runs {
         let net_seed: u64 = rng.r#gen();
@@ -598,10 +586,9 @@ fn run_experiment_5_dot_6(args: &Args) {
             eprintln!("Net {:>3}: {} cycles", net_idx + 1, num_cycles);
             eprintln!("  Raw count matrix (rows = source cycle, cols = dest cycle):");
             for row in &matrix {
-                let cells: Vec<String> = row.iter().map(|x| format!("{:>6}", x)).collect();
-                eprintln!("    [{}]", cells.join(", "));
+                let cells: Vec<String> = row.iter().map(|x| format!("{}", x)).collect();
+                println!("{}", cells.join(","));
             }
-            eprintln!("  Transition probability matrix:");
         }
 
         for (i, (_, cycle_states)) in cycle_list.iter().enumerate() {
@@ -621,36 +608,19 @@ fn run_experiment_5_dot_6(args: &Args) {
                 0
             };
 
-            if args.verbose {
-                let probs: Vec<String> = matrix[i]
-                    .iter()
-                    .map(|&x| {
-                        if row_total > 0 {
-                            format!("{:.4}", x as f64 / row_total as f64)
-                        } else {
-                            " N/A ".to_string()
-                        }
-                    })
-                    .collect();
-                eprintln!(
-                    "    [{}]  unknown={} timeout={}",
-                    probs.join(", "),
+            if !args.verbose {
+                println!(
+                    "{},{},{},{},{},{},{},{}",
+                    net_idx + 1,
+                    num_cycles,
+                    i,
+                    cycle_length,
+                    total_reachable,
+                    reachable_above_001,
                     unknown_counts[i],
-                    timeout_counts[i]
+                    timeout_counts[i],
                 );
             }
-
-            println!(
-                "{},{},{},{},{},{},{},{}",
-                net_idx + 1,
-                num_cycles,
-                i,
-                cycle_length,
-                total_reachable,
-                reachable_above_001,
-                unknown_counts[i],
-                timeout_counts[i],
-            );
         }
     }
 }

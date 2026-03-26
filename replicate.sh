@@ -17,25 +17,28 @@ cargo run --release -- -s 1 -x 1 -n 400 -r 100 | tee  output/fig_3_a.csv
 cargo run --release -- -s 2 -x 1 -n 400 -r 100 -e | tee  output/fig_3_b.csv
 
 # Fig. 4 — both conditions across all net sizes
-cargo run --release -- -s 3 -x 1 -n 15   -r 100    | tee  output/fig_4_n15_all.csv
-cargo run --release -- -s 4 -x 1 -n 15   -r 100 -e | tee  output/fig_4_n15_excl.csv
-cargo run --release -- -s 5 -x 1 -n 50   -r 100    | tee  output/fig_4_n50_all.csv
-cargo run --release -- -s 6 -x 1 -n 50   -r 100 -e | tee  output/fig_4_n50_excl.csv
-cargo run --release -- -s 7 -x 1 -n 100  -r 100    | tee  output/fig_4_n100_all.csv
-cargo run --release -- -s 8 -x 1 -n 100  -r 100 -e | tee  output/fig_4_n100_excl.csv
-cargo run --release -- -s 9 -x 1 -n 191  -r 100    | tee  output/fig_4_n191_all.csv
+cargo run --release -- -s  3 -x 1 -n 15   -r 100    | tee  output/fig_4_n15_all.csv
+cargo run --release -- -s  4 -x 1 -n 15   -r 100 -e | tee  output/fig_4_n15_excl.csv
+cargo run --release -- -s  5 -x 1 -n 50   -r 100    | tee  output/fig_4_n50_all.csv
+cargo run --release -- -s  6 -x 1 -n 50   -r 100 -e | tee  output/fig_4_n50_excl.csv
+cargo run --release -- -s  7 -x 1 -n 100  -r 100    | tee  output/fig_4_n100_all.csv
+cargo run --release -- -s  8 -x 1 -n 100  -r 100 -e | tee  output/fig_4_n100_excl.csv
+cargo run --release -- -s  9 -x 1 -n 191  -r 100    | tee  output/fig_4_n191_all.csv
 cargo run --release -- -s 10 -x 1 -n 191  -r 100 -e | tee  output/fig_4_n191_excl.csv
 cargo run --release -- -s 11 -x 1 -n 400  -r 100    | tee  output/fig_4_n400_all.csv
 cargo run --release -- -s 12 -x 1 -n 400  -r 100 -e | tee  output/fig_4_n400_excl.csv
 cargo run --release -- -s 13 -x 1 -n 1024 -r 100    | tee  output/fig_4_n1024_all.csv
-cargo run --release -- -s 14 -x 1 -n 1024 -r 100 -e -m 4294967296 | tee  output/fig_4_n1024_excl.csv
+cargo run --release -- -s 14 -x 1 -n 1024 -r 100 -e | tee  output/fig_4_n1024_excl.csv
+cargo run --release -- -s 150 -x 1 -n 2048 -r 100    | tee  output/fig_4_n2048_all.csv
+cargo run --release -- -s 160 -x 1 -n 2048 -r 100 -e | tee  output/fig_4_n2048_excl.csv
+
 
 # ==============================================================================
 # Experiment 2 — Fig. 5
 # Scattergram of run-in length vs cycle length
 # ==============================================================================
 
-cargo run --release -- -s 15 -x 2 -n 400 -r 100 -e | tee  output/fig_5.csv
+cargo run --release -- -s 15 -x 2 -n 400 -r 1000 -e | tee  output/fig_5.csv
 
 # ==============================================================================
 # Experiment 3 — Section 5.3
@@ -50,7 +53,8 @@ cargo run --release -- -s 16 -x 3 -n 100 -r 50 | tee  output/sec_5_3_activity.cs
 # ==============================================================================
 
 # Fig. 6 — N=400, exclude tautology & contradiction
-cargo run --release -- -s 17 -x 4 -n 400 -r 100 -e | tee  output/fig_6.csv
+cargo run --release -- -s 17 -x 4 -n 400 -r 100 -e | tee  output/fig_6_excl.csv
+cargo run --release -- -s 17 -x 4 -n 400 -r 100    | tee  output/fig_6_all.csv
 
 # Fig. 7 — across multiple net sizes
 cargo run --release -- -s 18 -x 4 -n 15   -r 100 -e | tee  output/fig_7_n15_excl.csv
@@ -77,7 +81,7 @@ cargo run --release -- -s 25 -x 6 -n 191 -r 10 -e | tee  output/fig_9_n191.csv
 cargo run --release -- -s 26 -x 6 -n 400 -r 10 -e | tee  output/fig_9_n400.csv
 
 # Fig. 10 — verbose output includes full count and probability matrices
-cargo run --release -- -s 27 -x 6 -n 191 -r 10 -e -v | tee  output/fig_10_n191_verbose.csv
-cargo run --release -- -s 28 -x 6 -n 400 -r 10 -e -v | tee  output/fig_10_n400_verbose.csv
+cargo run --release -- -s 27 -x 6 -n 191 -r 1 -e -v | tee  output/fig_10_n191.csv
+cargo run --release -- -s 28 -x 6 -n 400 -r 1 -e -v | tee  output/fig_10_n400.csv
 
 echo "All experiments complete. Results saved to output/"
