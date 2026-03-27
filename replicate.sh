@@ -64,6 +64,14 @@ cargo run --release -- -s 21 -x 4 -n 191  -r 100 -e | tee  output/fig_7_n191_exc
 cargo run --release -- -s 22 -x 4 -n 400  -r 100 -e | tee  output/fig_7_n400_excl.csv
 cargo run --release -- -s 23 -x 4 -n 1024 -r 100 -e | tee  output/fig_7_n1024_excl.csv
 
+cargo run --release -- -s 18 -x 4 -n 15   -r 100 | tee  output/fig_7_n15_all.csv
+cargo run --release -- -s 19 -x 4 -n 50   -r 100 | tee  output/fig_7_n50_all.csv
+cargo run --release -- -s 20 -x 4 -n 100  -r 100 | tee  output/fig_7_n100_all.csv
+cargo run --release -- -s 21 -x 4 -n 191  -r 100 | tee  output/fig_7_n191_all.csv
+cargo run --release -- -s 22 -x 4 -n 400  -r 100 | tee  output/fig_7_n400_all.csv
+cargo run --release -- -s 23 -x 4 -n 1024 -r 100 | tee  output/fig_7_n1024_all.csv
+
+
 # ==============================================================================
 # Experiment 5 — Fig. 8
 # Minimum distance between cycles
