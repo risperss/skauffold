@@ -6,10 +6,10 @@ def main():
     subprocess.run(["cargo", "build", "--release"])
 
     output_dir = "stability_output"
-    max_val = 1024
-    runs = 500
+    max_val = 1 << 10
+    runs = 100
 
-    n_vals = [15, 50, 100, 191, 400, 1024, 2048, 4096, 8192, 16384]
+    n_vals = [15, 20, 25, 50, 100, 191, 400, 1024, 8192]
     e_vals = ["", "-e"]
     k_vals = [2, 3, 4]
     i_vals = ["all-n", "all-n-except-self", "self-plus-other-n"]
@@ -21,7 +21,7 @@ def main():
             " ".join(
                 [
                     "./target/release/skauffold -x 1",
-                    f"-m {max_val} -s {i} -n {n} -r {runs} -i {i_type} {e}",
+                    f"-m {max_val} -s {i} -k {k} -n {n} -r {runs} -i {i_type} {e}",
                     f"| tee {output_dir}/fig_4_n{n}_k{k}_{'excl' if e else 'all'}_{i_type}.csv",
                 ]
             ),
